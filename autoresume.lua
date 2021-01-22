@@ -4,7 +4,7 @@ local PLUGIN_NAME     = 'Auto Resumer'
 -- Reload extension using Tools -> Plugins and Extensions -> Active Extensions -> Reload -> Toggle on again in View menu
 
 local options = {
-  	playlist_path   = '', -- use \\
+  	playlist_path   = '', -- use \\ instead of \
   	bookmark_filename = 'bookmark'
 }
 
@@ -14,8 +14,7 @@ function descriptor()
 		version = '1.0',
 		author = 'Namyts',
 		description = [[
-			When a video is paused, save an M3U playlist with current playback position.
-			Open this script in a text editor to configure.
+			When a video is paused, save an M3U playlist with all future episodes in the folder, and the timestamp of the current episode.
 		]],
 		capabilities = {'playing-listener', 'input-listener'},
 	}
@@ -23,25 +22,28 @@ end
 
 --CODE-----------------------------------------------------
 
+local function log(text)
+	if(text~=nil) then
+		vlc.msg.info(('[%s]: %s'):format(PLUGIN_NAME, text))
+	end
+end
+
 -- required...
 function activate()
 end
 function deactivate()
 end
 
-local function log(text)
-	vlc.msg.info(('[%s]: %s'):format(PLUGIN_NAME, text))
+local function splitByRegex(text,regex)
+	return text:gsub(regex, ''), text:match(regex)
 end
 
--- C:\foo\bar.txt -> C:\foo\
 local function splitPathAndFile(path)
-	local base_regex = '[^\\/]+$'
-  	return path:gsub(base_regex, ''), path:match(base_regex)
+	return splitByRegex(path,'[^\\/]+$')
 end
 
-local function removeFileExtension(file)
-	local file_ext_regex = '%.[^.]+$'
-	return file:gsub(file_ext_regex, '')
+local function splitFileAndExtension(file)
+	return splitByRegex(file,'%.[^.]+$')
 end
 
 local function onPause()
@@ -52,24 +54,36 @@ local function onPause()
 	local fullVideoPath = vlc.strings.decode_uri(fullVideoPathURI)
 		:gsub('^[^/]*/*', '')
 		:gsub('/', '\\')
-
-	-- log(fullVideoPath)
-
 	local videoDirectory, videoPath = splitPathAndFile(fullVideoPath)
-	local videoBase = removeFileExtension(videoPath)
+	local videoBase, videoExtension = splitFileAndExtension(videoPath)
 
-	log(('video dir: %s\n, file: %s\n, base: %s\n'):format(videoDirectory, videoPath, videoBase))
+	local files = vlc.io.readdir(videoDirectory)
+	table.sort(files)
+
+	local block = {} -- Table of text that will be written to a file line by line
+
+	local play_time = vlc.var.get(vlc.object.input(), 'time') / 1000000
+	table.insert(block,'#EXTVLCOPT:start-time='..play_time)
+	
+	local activated = false
+	for i, f in ipairs(files) do
+		local playlistVid, playlistExt = splitFileAndExtension(f)
+		if(videoPath==f) then
+			activated = true
+		end
+		if(videoExtension==playlistExt and activated) then -- append the rest of the season to the playlist. inlcuding the episode youre on, so that the start-time works.
+			table.insert(block,f)
+		end
+	end
+
+	local fileString = table.concat(block,'\n')
+
+	log(fileString)
 
 	local bookmark = ('%s.m3u'):format(options.bookmark_filename)
 	os.remove(bookmark)
-
-	local play_time = vlc.var.get(vlc.object.input(), 'time') / 1000000
-	local block = '#EXTVLCOPT:start-time=%d\n'..
-					'%s\n'..
-					'\n'
-	block = block:format(play_time, fullVideoPathURI)
 	local f = io.open(bookmark, 'w')
-	f:write(block)
+	f:write(fileString)
 	f:close()
 end
 
@@ -80,10 +94,6 @@ function playing_changed()
 			log(('[ERROR!]: %s'):format(msg))
 		end
   	end
-end
-
-function trigger()
-	log('I AM TRIGGERRED!!!!')
 end
 
 function open()
