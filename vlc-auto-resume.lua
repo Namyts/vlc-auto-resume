@@ -1,5 +1,5 @@
 --SETUP-----------------------------------------------------
-local PLUGIN_NAME     = 'Auto Resumer'
+local PLUGIN_NAME     = 'Namyts\'s Automatic Bookmark'
 
 -- Reload extension using Tools -> Plugins and Extensions -> Active Extensions -> Reload -> Toggle on again in View menu
 
